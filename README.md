@@ -7,7 +7,7 @@ AI-powered SQL query extraction, testing, and optimization plugins for your IDE.
 | Plugin | Status | Description |
 |--------|--------|-------------|
 | [JetBrains](./jetbrains) | ✅ Ready | PyCharm, IntelliJ IDEA, WebStorm, etc. |
-| [VSCode](./vscode) | 🚧 Coming Soon | Visual Studio Code |
+| [VSCode/Cursor](./vscode) | ✅ Ready | Visual Studio Code, Cursor |
 
 ## Features
 
@@ -28,9 +28,14 @@ cd jetbrains
 # Install: Settings → Plugins → ⚙️ → Install from Disk → build/distributions/*.zip
 ```
 
-### VSCode
+### VSCode / Cursor
 
-Coming soon!
+```bash
+cd vscode
+npm install
+npm run package
+# Install: Extensions → ... → Install from VSIX → psql-query-tester-1.0.0.vsix
+```
 
 ## Configuration
 
@@ -43,8 +48,8 @@ Both plugins require:
 1. Select code containing a SQL query
 2. Trigger the plugin:
    - **JetBrains**: `Ctrl+Shift+P`
-   - **VSCode**: `Ctrl+Shift+P` → "PSQL: Extract Query"
-3. Fill in any parameters
+   - **VSCode/Cursor**: `Ctrl+Shift+P` → "PSQL: Extract and Test Query"
+3. Fill in any parameters (use AI button for auto-fill)
 4. Click Execute
 5. View results and optimization suggestions
 
