@@ -1,0 +1,125 @@
+{
+  "name": "psql-query-tester",
+  "displayName": "PSQL Query Tester",
+  "description": "AI-powered SQL query extraction, testing, and optimization for PostgreSQL",
+  "version": "1.0.0",
+  "publisher": "ReshotLabs",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ReshotLabs/psql-query-tester"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other",
+    "Programming Languages"
+  ],
+  "keywords": [
+    "postgresql",
+    "sql",
+    "database",
+    "query",
+    "ai",
+    "elixir",
+    "ecto"
+  ],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "psql-query-tester.extractQuery",
+        "title": "PSQL: Extract and Test Query"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "psql-query-tester.extractQuery",
+        "key": "ctrl+shift+p",
+        "mac": "ctrl+shift+p",
+        "when": "editorHasSelection"
+      }
+    ],
+    "configuration": {
+      "title": "PSQL Query Tester",
+      "properties": {
+        "psqlQueryTester.openRouterApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "OpenRouter API key for AI features"
+        },
+        "psqlQueryTester.modelOverride": {
+          "type": "string",
+          "default": "",
+          "description": "Override the default AI model (e.g., anthropic/claude-sonnet-4)"
+        },
+        "psqlQueryTester.connectionString": {
+          "type": "string",
+          "default": "",
+          "description": "PostgreSQL connection string (postgresql://user:pass@host:port/db)"
+        },
+        "psqlQueryTester.maxResultRows": {
+          "type": "number",
+          "default": 1000,
+          "description": "Maximum number of rows to return"
+        },
+        "psqlQueryTester.queryTimeout": {
+          "type": "number",
+          "default": 30,
+          "description": "Query timeout in seconds"
+        },
+        "psqlQueryTester.sslMode": {
+          "type": "string",
+          "default": "prefer",
+          "enum": [
+            "disable",
+            "prefer",
+            "require",
+            "verify-ca",
+            "verify-full"
+          ],
+          "description": "SSL mode for database connection"
+        }
+      }
+    },
+    "viewsContainers": {
+      "panel": [
+        {
+          "id": "psql-query-tester",
+          "title": "PSQL Query Tester",
+          "icon": "$(database)"
+        }
+      ]
+    },
+    "views": {
+      "psql-query-tester": [
+        {
+          "type": "webview",
+          "id": "psql-query-tester.panel",
+          "name": "Query Tester"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/pg": "^8.16.0",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "@vscode/vsce": "^2.22.0",
+    "eslint": "^8.54.0",
+    "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "pg": "^8.11.3"
+  }
+}
