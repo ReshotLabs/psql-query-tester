@@ -1,115 +1,53 @@
 # PSQL Query Tester
 
-A JetBrains IDE plugin (PyCharm, IntelliJ, etc.) that extracts SQL queries from code, provides AI-powered query analysis, and lets you test queries directly against your PostgreSQL database.
+AI-powered SQL query extraction, testing, and optimization plugins for your IDE.
+
+## Plugins
+
+| Plugin | Status | Description |
+|--------|--------|-------------|
+| [JetBrains](./jetbrains) | ✅ Ready | PyCharm, IntelliJ IDEA, WebStorm, etc. |
+| [VSCode](./vscode) | 🚧 Coming Soon | Visual Studio Code |
 
 ## Features
 
-### Query Extraction
-- Select code containing SQL queries and press `Ctrl+Shift+P`
-- AI automatically extracts and formats the SQL query
-- Supports Elixir/Ecto, raw SQL strings, and other languages
-- Detects query parameters and generates a dynamic input form
+- **Query Extraction** - Select code containing SQL and let AI extract & format it
+- **Parameter Detection** - Automatically generates input forms for query parameters
+- **Query Execution** - Run queries directly against your PostgreSQL database with timing
+- **AI Optimization** - Get AI-suggested query optimizations with explanations
+- **AI Parameter Assistant** - Describe values in plain language, AI finds them in your DB
+- **Schema Awareness** - AI knows your database structure for accurate suggestions
 
-### Query Execution
-- Execute queries directly against your PostgreSQL database
-- See results in a table with timing information
-- Copy results to clipboard (cell, row, or entire table)
+## Quick Start
 
-### AI-Powered Optimization
-- After running a query, get AI-suggested optimizations
-- See expected performance improvements and explanations
-- Edit suggested queries before testing
-- Test optimized queries and compare execution times
-- Apply optimizations back to your source code
+### JetBrains (PyCharm, IntelliJ, etc.)
 
-### AI Parameter Assistant
-- Click the "AI" button next to any parameter field
-- Describe what value you want in plain language:
-  - "the oldest user in the database"
-  - "any product created in the past 30 days"
-  - "the order with the highest total"
-- AI generates and executes a query to find the value
-
-### Database Schema Awareness
-- AI has access to your database schema
-- Validates table and column names
-- Suggests queries based on actual schema structure
-
-## Installation
-
-### From Disk
-1. Download the latest release `.zip` file
-2. In your JetBrains IDE: **Settings** → **Plugins** → **⚙️** → **Install Plugin from Disk...**
-3. Select the downloaded `.zip` file
-4. Restart the IDE
-
-### Build from Source
 ```bash
-# Requires Java 17+
+cd jetbrains
 ./gradlew buildPlugin
-
-# Plugin will be at: build/distributions/psql-query-tester-1.0.0.zip
+# Install: Settings → Plugins → ⚙️ → Install from Disk → build/distributions/*.zip
 ```
+
+### VSCode
+
+Coming soon!
 
 ## Configuration
 
-Go to **Settings** → **PSQL Query Tester**:
-
-| Setting | Description |
-|---------|-------------|
-| **OpenRouter API Key** | Your API key from [openrouter.ai/keys](https://openrouter.ai/keys) |
-| **Model Override** | Optional. Override the default model (e.g., `anthropic/claude-sonnet-4`) |
-| **PostgreSQL Connection String** | Format: `postgresql://user:password@host:port/database` |
-| **Max Result Rows** | Maximum rows to return (default: 1000) |
-| **Query Timeout** | Timeout in seconds (default: 30) |
-| **SSL Mode** | `disable`, `prefer`, `require`, `verify-ca`, `verify-full` |
+Both plugins require:
+1. **OpenRouter API Key** - Get one at [openrouter.ai/keys](https://openrouter.ai/keys)
+2. **PostgreSQL Connection String** - Format: `postgresql://user:password@host:port/database`
 
 ## Usage
 
-1. **Configure the plugin** in Settings with your OpenRouter API key and database connection
-2. **Open any file** containing SQL queries in code
-3. **Select the code** containing a query
-4. **Press `Ctrl+Shift+P`** (or find "Extract and Test PSQL Query" in the Tools menu)
-5. The **PSQL Query Tester** tool window opens with:
-   - Extracted and formatted SQL query
-   - Parameter input form (if parameters detected)
-   - Execute button to run the query
-6. **Fill in parameters** and click **Execute Query**
-7. **View results** and optimization suggestions
-8. **Test optimizations** and apply them to your code
-
-## Keyboard Shortcut
-
-- **Windows/Linux**: `Ctrl+Shift+P`
-- **macOS**: `Ctrl+Shift+P`
-
-## Supported Languages
-
-The AI can extract SQL from various languages including:
-- Elixir (Ecto queries, fragments, raw SQL)
-- Python (psycopg2, SQLAlchemy, raw strings)
-- JavaScript/TypeScript (pg, knex, raw strings)
-- Ruby (ActiveRecord, raw SQL)
-- And more...
-
-## Technology Stack
-
-- **Kotlin** - Plugin implementation
-- **IntelliJ Platform SDK** - JetBrains plugin framework
-- **Ktor** - HTTP client for OpenRouter API
-- **HikariCP** - PostgreSQL connection pooling
-- **OpenRouter** - AI model routing (Claude, GPT, etc.)
-
-## Requirements
-
-- JetBrains IDE 2023.3 or newer (PyCharm, IntelliJ IDEA, WebStorm, etc.)
-- PostgreSQL database
-- OpenRouter API key
+1. Select code containing a SQL query
+2. Trigger the plugin:
+   - **JetBrains**: `Ctrl+Shift+P`
+   - **VSCode**: `Ctrl+Shift+P` → "PSQL: Extract Query"
+3. Fill in any parameters
+4. Click Execute
+5. View results and optimization suggestions
 
 ## License
 
 MIT
-
-## Contributing
-
-Contributions are welcome! Please open an issue or submit a pull request.

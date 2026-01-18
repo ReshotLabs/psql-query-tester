@@ -10,6 +10,11 @@ build/
 *.iws
 out/
 
+# VSCode
+node_modules/
+*.vsix
+.vscode-test/
+
 # OS
 .DS_Store
 Thumbs.db
