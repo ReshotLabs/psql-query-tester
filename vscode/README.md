@@ -11,7 +11,6 @@ VSCode and Cursor extension for AI-powered SQL query extraction, testing, and op
 ### Build from Source
 ```bash
 npm install
-npm run compile
 npm run package
 ```
 
@@ -31,10 +30,11 @@ npm run package
 ## Usage
 
 1. Select code containing SQL
-2. Press `Ctrl+Shift+P` → "PSQL: Extract and Test Query"
-3. Fill parameters (use **AI** button for auto-fill)
-4. Click **Execute Query**
-5. View results and optimizations
+2. Press `Ctrl+Cmd+T` (Mac) or `Ctrl+Alt+T` (Windows/Linux)
+3. Or: `Cmd+Shift+P` → "PSQL: Extract and Test Query"
+4. Fill parameters (use **AI** button for auto-fill)
+5. Click **Execute Query**
+6. View results and optimizations
 
 ## Requirements
 

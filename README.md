@@ -48,7 +48,7 @@ Both plugins require:
 1. Select code containing a SQL query
 2. Trigger the plugin:
    - **JetBrains**: `Ctrl+Shift+P`
-   - **VSCode/Cursor**: `Ctrl+Shift+P` → "PSQL: Extract and Test Query"
+   - **VSCode/Cursor**: `Ctrl+Cmd+T` (Mac) / `Ctrl+Alt+T` (Windows/Linux)
 3. Fill in any parameters (use AI button for auto-fill)
 4. Click Execute
 5. View results and optimization suggestions

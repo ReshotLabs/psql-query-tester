@@ -17,6 +17,9 @@ export class QueryTesterPanel {
     private originalCode: string = '';
     private detectedLanguage: string = '';
 
+    private static pendingCode: string = '';
+    private static pendingFileName: string = '';
+
     public static createOrShow(extensionUri: vscode.Uri, selectedCode: string, fileName: string) {
         const column = vscode.ViewColumn.Beside;
 
@@ -25,6 +28,10 @@ export class QueryTesterPanel {
             QueryTesterPanel.currentPanel.extractQuery(selectedCode, fileName);
             return;
         }
+
+        // Store pending code for when webview is ready
+        QueryTesterPanel.pendingCode = selectedCode;
+        QueryTesterPanel.pendingFileName = fileName;
 
         const panel = vscode.window.createWebviewPanel(
             QueryTesterPanel.viewType,
@@ -37,7 +44,6 @@ export class QueryTesterPanel {
         );
 
         QueryTesterPanel.currentPanel = new QueryTesterPanel(panel, extensionUri);
-        QueryTesterPanel.currentPanel.extractQuery(selectedCode, fileName);
     }
 
     public static revive(panel: vscode.WebviewPanel, extensionUri: vscode.Uri) {
@@ -57,6 +63,14 @@ export class QueryTesterPanel {
         this._panel.webview.onDidReceiveMessage(
             async message => {
                 switch (message.command) {
+                    case 'ready':
+                        // Webview is ready, process pending code
+                        if (QueryTesterPanel.pendingCode) {
+                            this.extractQuery(QueryTesterPanel.pendingCode, QueryTesterPanel.pendingFileName);
+                            QueryTesterPanel.pendingCode = '';
+                            QueryTesterPanel.pendingFileName = '';
+                        }
+                        break;
                     case 'executeQuery':
                         await this.executeQuery(message.parameterValues);
                         break;
@@ -641,6 +655,9 @@ export class QueryTesterPanel {
 
             resultSpan.innerHTML = ' <span class="success">' + result.durationMs + 'ms' + comparison + ' - ' + result.rowCount + ' rows</span>';
         }
+
+        // Signal that webview is ready
+        vscode.postMessage({ command: 'ready' });
     </script>
 </body>
 </html>`;

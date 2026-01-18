@@ -24,7 +24,9 @@
     "elixir",
     "ecto"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onCommand:psql-query-tester.extractQuery"
+  ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
@@ -36,8 +38,8 @@
     "keybindings": [
       {
         "command": "psql-query-tester.extractQuery",
-        "key": "ctrl+shift+p",
-        "mac": "ctrl+shift+p",
+        "key": "ctrl+alt+t",
+        "mac": "ctrl+cmd+t",
         "when": "editorHasSelection"
       }
     ],
