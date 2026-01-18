@@ -1,0 +1,441 @@
+package com.psqlquerytester.ui
+
+import com.intellij.openapi.command.WriteCommandAction
+import com.intellij.openapi.editor.Editor
+import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.project.Project
+import com.intellij.openapi.ui.Messages
+import com.intellij.openapi.util.Key
+import com.intellij.ui.JBSplitter
+import com.intellij.ui.components.JBScrollPane
+import com.intellij.util.ui.JBUI
+import com.psqlquerytester.api.ExtractedQuery
+import com.psqlquerytester.api.OpenRouterClient
+import com.psqlquerytester.api.OptimizationSuggestion
+import com.psqlquerytester.api.QueryParameter
+import com.psqlquerytester.db.QueryExecutor
+import com.psqlquerytester.db.QueryResult
+import com.psqlquerytester.db.SchemaIntrospector
+import com.psqlquerytester.extraction.QueryExtractor
+import com.psqlquerytester.ui.panels.OptimizationPanel
+import com.psqlquerytester.ui.panels.ParameterFormPanel
+import com.psqlquerytester.ui.panels.QueryPreviewPanel
+import com.psqlquerytester.ui.panels.ResultsPanel
+import kotlinx.coroutines.*
+import kotlinx.coroutines.swing.Swing
+import java.awt.BorderLayout
+import javax.swing.JLabel
+import javax.swing.JPanel
+import javax.swing.SwingConstants
+
+class QueryTesterToolWindow(private val project: Project) {
+
+    companion object {
+        val KEY = Key.create<QueryTesterToolWindow>("QueryTesterToolWindow")
+    }
+
+    private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+
+    private val mainPanel = JPanel(BorderLayout())
+    private val queryPreviewPanel = QueryPreviewPanel()
+    private val parameterFormPanel = ParameterFormPanel(
+        onExecute = { executeQuery() },
+        onAiAssist = { paramName, paramType -> handleAiAssist(paramName, paramType) }
+    )
+    private val resultsPanel = ResultsPanel()
+    private val optimizationPanel = OptimizationPanel(
+        onTestQuery = { suggestion -> testOptimizedQuery(suggestion) },
+        onApplyToCode = { suggestion -> applyToCode(suggestion) }
+    )
+
+    private val statusLabel = JLabel("Ready", SwingConstants.LEFT).apply {
+        border = JBUI.Borders.empty(5)
+    }
+
+    private var currentQuery: ExtractedQuery? = null
+    private var queryExtractor: QueryExtractor? = null
+    private var openRouterClient: OpenRouterClient? = null
+    private var lastExecutionTimeMs: Long = 0
+    private var originalCode: String = ""
+    private var detectedLanguage: String = "elixir"
+
+    init {
+        setupUI()
+    }
+
+    private fun setupUI() {
+        // Top section: Query preview + Parameter form
+        val topPanel = JPanel(BorderLayout()).apply {
+            val topSplitter = JBSplitter(false, 0.6f).apply {
+                firstComponent = JBScrollPane(queryPreviewPanel)
+                secondComponent = JBScrollPane(parameterFormPanel)
+            }
+            add(topSplitter, BorderLayout.CENTER)
+        }
+
+        // Middle section: Results + Optimization
+        val bottomPanel = JPanel(BorderLayout()).apply {
+            val bottomSplitter = JBSplitter(false, 0.5f).apply {
+                firstComponent = JBScrollPane(resultsPanel)
+                secondComponent = JBScrollPane(optimizationPanel)
+            }
+            add(bottomSplitter, BorderLayout.CENTER)
+        }
+
+        // Main splitter: Top (query + params) and Bottom (results + optimization)
+        val mainSplitter = JBSplitter(true, 0.35f).apply {
+            firstComponent = topPanel
+            secondComponent = bottomPanel
+        }
+
+        mainPanel.add(mainSplitter, BorderLayout.CENTER)
+        mainPanel.add(statusLabel, BorderLayout.SOUTH)
+    }
+
+    fun getContent(): JPanel = mainPanel
+
+    fun extractAndTestQuery(selectedCode: String, fileName: String?) {
+        if (queryExtractor == null) {
+            queryExtractor = QueryExtractor()
+        }
+        if (openRouterClient == null) {
+            openRouterClient = OpenRouterClient()
+        }
+
+        // Store original code for later code generation
+        originalCode = selectedCode
+
+        updateStatus("Extracting query...")
+        queryPreviewPanel.setLoading(true)
+        parameterFormPanel.clear()
+        resultsPanel.clear()
+        optimizationPanel.clear()
+
+        scope.launch {
+            try {
+                val language = queryExtractor!!.detectLanguage(fileName, selectedCode)
+                detectedLanguage = language
+                val result = queryExtractor!!.extract(selectedCode, language)
+
+                withContext(Dispatchers.Swing) {
+                    handleExtractionResult(result)
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Swing) {
+                    queryPreviewPanel.setLoading(false)
+                    queryPreviewPanel.setError("Extraction failed: ${e.message}")
+                    updateStatus("Extraction failed")
+                }
+            }
+        }
+    }
+
+    private fun handleExtractionResult(result: ExtractedQuery) {
+        currentQuery = result
+        queryPreviewPanel.setLoading(false)
+
+        if (result.error != null && result.query.isEmpty()) {
+            queryPreviewPanel.setError(result.error)
+            updateStatus("Extraction failed")
+            return
+        }
+
+        val queryToShow = result.formattedQuery.ifEmpty { result.query }
+        queryPreviewPanel.setQuery(queryToShow)
+
+        if (result.parameters.isNotEmpty()) {
+            parameterFormPanel.setParameters(result.parameters)
+            updateStatus("Query extracted. Fill in parameters and click Execute.")
+        } else {
+            parameterFormPanel.setNoParameters()
+            updateStatus("Query extracted. Click Execute to run.")
+        }
+    }
+
+    private fun executeQuery() {
+        val query = currentQuery ?: return
+        if (query.query.isEmpty()) {
+            updateStatus("No query to execute")
+            return
+        }
+
+        val parameterValues = parameterFormPanel.getParameterValues()
+        updateStatus("Executing query...")
+        resultsPanel.setLoading(true)
+
+        scope.launch {
+            try {
+                val result = QueryExecutor.execute(
+                    query.query,
+                    query.parameters,
+                    parameterValues
+                )
+
+                withContext(Dispatchers.Swing) {
+                    handleQueryResult(result)
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Swing) {
+                    resultsPanel.setLoading(false)
+                    resultsPanel.setError("Execution failed: ${e.message}")
+                    updateStatus("Execution failed")
+                }
+            }
+        }
+    }
+
+    private fun handleQueryResult(result: QueryResult) {
+        resultsPanel.setLoading(false)
+
+        if (result.error != null) {
+            resultsPanel.setError(result.error)
+            updateStatus("Query failed: ${result.error}")
+            return
+        }
+
+        resultsPanel.setResult(result)
+        lastExecutionTimeMs = result.durationMs
+
+        val statusText = if (result.isSelect) {
+            "${result.rowCount} rows returned in ${result.durationMs}ms"
+        } else {
+            "${result.affectedRows} rows affected in ${result.durationMs}ms"
+        }
+        updateStatus(statusText)
+
+        // Trigger optimization suggestions after successful query
+        if (result.isSelect && currentQuery != null) {
+            requestOptimizations()
+        }
+    }
+
+    private fun requestOptimizations() {
+        val query = currentQuery ?: return
+        optimizationPanel.setLoading(true)
+        updateStatus("Finding optimizations...")
+
+        scope.launch {
+            try {
+                val dbSchema = SchemaIntrospector.getSchema()
+                val response = openRouterClient!!.suggestOptimizations(
+                    query.query,
+                    lastExecutionTimeMs,
+                    dbSchema,
+                    query.parameters
+                )
+
+                withContext(Dispatchers.Swing) {
+                    optimizationPanel.setLoading(false)
+                    if (response.error != null) {
+                        optimizationPanel.setError(response.error)
+                    } else {
+                        optimizationPanel.setOptimizations(response, lastExecutionTimeMs)
+                    }
+                    updateStatus("${resultsPanel.getRowCount()} rows in ${lastExecutionTimeMs}ms - ${response.suggestions.size} optimizations found")
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Swing) {
+                    optimizationPanel.setLoading(false)
+                    optimizationPanel.setError("Failed to get optimizations: ${e.message}")
+                }
+            }
+        }
+    }
+
+    private fun testOptimizedQuery(suggestion: OptimizationSuggestion) {
+        val parameterValues = parameterFormPanel.getParameterValues()
+        updateStatus("Testing optimized query...")
+        optimizationPanel.setTestingQuery(suggestion)
+
+        // Use suggestion parameters if available, otherwise filter original params to those used in the query
+        val paramsToUse = if (suggestion.parameters.isNotEmpty()) {
+            suggestion.parameters
+        } else {
+            // Find which $N parameters are actually used in the optimized query
+            val usedPositions = Regex("""\$(\d+)""").findAll(suggestion.query)
+                .map { it.groupValues[1].toInt() }
+                .toSet()
+            currentQuery?.parameters?.filter { it.position in usedPositions } ?: emptyList()
+        }
+
+        scope.launch {
+            try {
+                val result = QueryExecutor.execute(
+                    suggestion.query,
+                    paramsToUse,
+                    parameterValues
+                )
+
+                withContext(Dispatchers.Swing) {
+                    optimizationPanel.setTestResult(suggestion, result)
+                    if (result.error == null) {
+                        val improvement = if (lastExecutionTimeMs > 0 && result.durationMs < lastExecutionTimeMs) {
+                            val pct = ((lastExecutionTimeMs - result.durationMs) * 100) / lastExecutionTimeMs
+                            " (${pct}% faster)"
+                        } else ""
+                        updateStatus("Optimized query: ${result.durationMs}ms$improvement")
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Swing) {
+                    optimizationPanel.setTestError(suggestion, e.message ?: "Unknown error")
+                }
+            }
+        }
+    }
+
+    private fun applyToCode(suggestion: OptimizationSuggestion) {
+        val query = currentQuery ?: return
+        updateStatus("Generating code change...")
+
+        scope.launch {
+            try {
+                val response = openRouterClient!!.generateCodeChange(
+                    originalCode,
+                    query.query,
+                    suggestion.query,
+                    detectedLanguage
+                )
+
+                withContext(Dispatchers.Swing) {
+                    if (response.error != null) {
+                        updateStatus("Code generation failed: ${response.error}")
+                        return@withContext
+                    }
+
+                    // Apply the change to the editor
+                    applyCodeToEditor(response.modifiedCode)
+                    updateStatus("Code updated! ${response.explanation}")
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Swing) {
+                    updateStatus("Failed to apply code: ${e.message}")
+                }
+            }
+        }
+    }
+
+    private fun applyCodeToEditor(newCode: String) {
+        val editor = FileEditorManager.getInstance(project).selectedTextEditor ?: return
+        val document = editor.document
+        val selectionModel = editor.selectionModel
+
+        if (selectionModel.hasSelection()) {
+            WriteCommandAction.runWriteCommandAction(project) {
+                document.replaceString(
+                    selectionModel.selectionStart,
+                    selectionModel.selectionEnd,
+                    newCode
+                )
+            }
+        }
+    }
+
+    private fun handleAiAssist(paramName: String, paramType: String) {
+        // Show input dialog to get description
+        val description = Messages.showInputDialog(
+            project,
+            "Describe what value you want for '$paramName' (type: $paramType):\n\n" +
+                    "Examples:\n" +
+                    "• \"the oldest user in the database\"\n" +
+                    "• \"any user created in the past 30 days\"\n" +
+                    "• \"the id of the product with highest price\"",
+            "AI Parameter Assist",
+            Messages.getQuestionIcon()
+        )
+
+        if (description.isNullOrBlank()) return
+
+        if (openRouterClient == null) {
+            openRouterClient = OpenRouterClient()
+        }
+
+        updateStatus("AI generating query for '$paramName'...")
+
+        scope.launch {
+            try {
+                val dbSchema = SchemaIntrospector.getSchema()
+                val queryResponse = openRouterClient!!.generateParameterValueQuery(
+                    paramName,
+                    paramType,
+                    description,
+                    dbSchema
+                )
+
+                withContext(Dispatchers.Swing) {
+                    if (queryResponse.error != null) {
+                        Messages.showErrorDialog(
+                            project,
+                            "Could not generate query: ${queryResponse.error}",
+                            "AI Assist Error"
+                        )
+                        updateStatus("AI assist failed: ${queryResponse.error}")
+                        return@withContext
+                    }
+
+                    if (queryResponse.query.isBlank()) {
+                        Messages.showErrorDialog(
+                            project,
+                            "No query generated",
+                            "AI Assist Error"
+                        )
+                        updateStatus("AI assist failed: no query generated")
+                        return@withContext
+                    }
+
+                    updateStatus("Executing AI-generated query...")
+                }
+
+                // Execute the generated query to get the value
+                val result = QueryExecutor.executeSimple(queryResponse.query)
+
+                withContext(Dispatchers.Swing) {
+                    if (result.error != null) {
+                        Messages.showErrorDialog(
+                            project,
+                            "Query failed: ${result.error}\n\nGenerated query:\n${queryResponse.query}",
+                            "AI Assist Error"
+                        )
+                        updateStatus("AI assist query failed")
+                        return@withContext
+                    }
+
+                    // Get the first value from the result
+                    val value = result.rows.firstOrNull()?.firstOrNull()?.toString()
+                    if (value == null) {
+                        Messages.showWarningDialog(
+                            project,
+                            "Query returned no results.\n\nGenerated query:\n${queryResponse.query}",
+                            "AI Assist Warning"
+                        )
+                        updateStatus("AI assist: no results found")
+                        return@withContext
+                    }
+
+                    // Fill the parameter value
+                    parameterFormPanel.setParameterValue(paramName, value)
+                    updateStatus("AI filled '$paramName' = $value (${queryResponse.explanation})")
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Swing) {
+                    Messages.showErrorDialog(
+                        project,
+                        "AI assist failed: ${e.message}",
+                        "AI Assist Error"
+                    )
+                    updateStatus("AI assist error: ${e.message}")
+                }
+            }
+        }
+    }
+
+    private fun updateStatus(text: String) {
+        statusLabel.text = text
+    }
+
+    fun dispose() {
+        scope.cancel()
+        queryExtractor?.close()
+        openRouterClient?.close()
+    }
+}

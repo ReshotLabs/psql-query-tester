@@ -1,0 +1,66 @@
+<idea-plugin>
+    <id>com.psqlquerytester</id>
+    <name>PSQL Query Tester</name>
+    <vendor>Anthony</vendor>
+
+    <description><![CDATA[
+    Extract, test, and execute PostgreSQL queries from your code using AI.
+    <br/><br/>
+    <b>Features:</b>
+    <ul>
+        <li>Select code containing SQL queries and extract them using Claude AI</li>
+        <li>Automatic parameter detection with dynamic input form</li>
+        <li>Execute queries against your PostgreSQL database</li>
+        <li>View results with execution time</li>
+        <li>Supports Elixir/Ecto and other languages</li>
+    </ul>
+    <br/>
+    <b>Usage:</b>
+    <ol>
+        <li>Configure your OpenRouter API key and PostgreSQL connection in Settings</li>
+        <li>Select code containing a SQL query</li>
+        <li>Press Ctrl+Alt+Q (Cmd+Option+Q on macOS)</li>
+        <li>Fill in any required parameters</li>
+        <li>Click Execute to run the query</li>
+    </ol>
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <!-- Settings -->
+        <applicationConfigurable
+            id="com.psqlquerytester.settings"
+            displayName="PSQL Query Tester"
+            instance="com.psqlquerytester.settings.SettingsConfigurable"/>
+
+        <applicationService
+            serviceImplementation="com.psqlquerytester.settings.PluginSettings"/>
+
+        <!-- Tool Window -->
+        <toolWindow
+            id="PSQL Query Tester"
+            anchor="bottom"
+            factoryClass="com.psqlquerytester.ui.QueryTesterToolWindowFactory"
+            icon="AllIcons.Nodes.DataTables"/>
+    </extensions>
+
+    <actions>
+        <action
+            id="com.psqlquerytester.ExtractAndTestQuery"
+            class="com.psqlquerytester.actions.ExtractAndTestQueryAction"
+            text="Extract and Test PSQL Query"
+            description="Extract SQL query from selected code and test it">
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+            <keyboard-shortcut
+                keymap="$default"
+                first-keystroke="control shift P"/>
+            <keyboard-shortcut
+                keymap="Mac OS X"
+                first-keystroke="control shift P"/>
+            <keyboard-shortcut
+                keymap="Mac OS X 10.5+"
+                first-keystroke="control shift P"/>
+        </action>
+    </actions>
+</idea-plugin>
