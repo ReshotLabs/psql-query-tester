@@ -13,8 +13,6 @@ data class ChatMessage(
 data class ChatCompletionRequest(
     val model: String,
     val messages: List<ChatMessage>,
-    @SerialName("max_tokens")
-    val maxTokens: Int = 2000,
     val temperature: Double = 0.1
 )
 

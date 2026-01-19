@@ -115,7 +115,7 @@ The user has selected the following specific code snippet from the above context
 
         const userPrompt = `${contextPrompt}SELECTED CODE to extract SQL from:\n\n\`\`\`${language}\n${codeSnippet}\n\`\`\``;
 
-        return this.callApi<ExtractedQuery>(systemPrompt, userPrompt, 2000, 0.1);
+        return this.callApi<ExtractedQuery>(systemPrompt, userPrompt, 0.1);
     }
 
     async suggestOptimizations(query: string, executionTimeMs: number, dbSchema: string | undefined, parameters: QueryParameter[]): Promise<OptimizationResponse> {
@@ -165,7 +165,7 @@ Keep the same parameters ($1, $2, etc.) as the original query.`;
 
         const userPrompt = `Optimize this PostgreSQL query:\n\n\`\`\`sql\n${query}\n\`\`\`\n\nCurrent execution time: ${executionTimeMs}ms\nParameters: ${parameters.map(p => `${p.name} (${p.type})`).join(', ')}\n\nSuggest faster alternatives and any helpful indexes.`;
 
-        return this.callApi<OptimizationResponse>(systemPrompt, userPrompt, 3000, 0.2);
+        return this.callApi<OptimizationResponse>(systemPrompt, userPrompt, 0.2);
     }
 
     async generateParameterValueQuery(paramName: string, paramType: string, description: string, dbSchema: string | undefined): Promise<ParameterValueQuery> {
@@ -198,7 +198,7 @@ If unable to generate a valid query:
 
         const userPrompt = `Generate a PostgreSQL query to find a value for parameter "${paramName}" (type: ${paramType}).\n\nUser's description: ${description}\n\nThe query should return exactly one value that matches this description.`;
 
-        return this.callApi<ParameterValueQuery>(systemPrompt, userPrompt, 1000, 0.1);
+        return this.callApi<ParameterValueQuery>(systemPrompt, userPrompt, 0.1);
     }
 
     async generateCodeChange(
@@ -259,12 +259,12 @@ ${optimizedQuery}
 
 Generate the modified code that can directly replace the original code selection.`;
 
-        return this.callApi<CodeChangeResponse>(systemPrompt, userPrompt, 3000, 0.1);
+        return this.callApi<CodeChangeResponse>(systemPrompt, userPrompt, 0.1);
     }
 
-    private async callApi<T>(systemPrompt: string, userPrompt: string, maxTokens: number, temperature: number): Promise<T> {
+    private async callApi<T>(systemPrompt: string, userPrompt: string, temperature: number): Promise<T> {
         const apiKey = this.getApiKey();
-        
+
         const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
             method: 'POST',
             headers: {
@@ -279,7 +279,6 @@ Generate the modified code that can directly replace the original code selection
                     { role: 'system', content: systemPrompt },
                     { role: 'user', content: userPrompt }
                 ],
-                max_tokens: maxTokens,
                 temperature: temperature
             })
         });

@@ -13,7 +13,7 @@ class QueryPreviewPanel : JPanel(BorderLayout()) {
 
     private val titleLabel = JBLabel("Extracted SQL Query")
     private val queryTextArea = JBTextArea().apply {
-        isEditable = false
+        isEditable = true
         lineWrap = true
         wrapStyleWord = true
         font = Font(Font.MONOSPACED, Font.PLAIN, 13)
@@ -64,5 +64,9 @@ class QueryPreviewPanel : JPanel(BorderLayout()) {
         queryTextArea.text = ""
         errorLabel.isVisible = false
         loadingLabel.isVisible = false
+    }
+
+    fun getQuery(): String {
+        return queryTextArea.text
     }
 }

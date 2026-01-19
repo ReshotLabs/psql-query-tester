@@ -202,7 +202,10 @@ class QueryTesterToolWindow(private val project: Project) {
 
     private fun executeQuery() {
         val query = currentQuery ?: return
-        if (query.query.isEmpty()) {
+
+        // Use edited query from panel if available
+        val queryToExecute = queryPreviewPanel.getQuery().ifBlank { query.query }
+        if (queryToExecute.isEmpty()) {
             updateStatus("No query to execute")
             return
         }
@@ -214,13 +217,13 @@ class QueryTesterToolWindow(private val project: Project) {
         scope.launch {
             try {
                 val result = QueryExecutor.execute(
-                    query.query,
+                    queryToExecute,
                     query.parameters,
                     parameterValues
                 )
 
                 withContext(Dispatchers.Swing) {
-                    handleQueryResult(result)
+                    handleQueryResult(result, queryToExecute)
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Swing) {
@@ -232,12 +235,16 @@ class QueryTesterToolWindow(private val project: Project) {
         }
     }
 
-    private fun handleQueryResult(result: QueryResult) {
+    private fun handleQueryResult(result: QueryResult, executedQuery: String? = null) {
         resultsPanel.setLoading(false)
 
         if (result.error != null) {
             resultsPanel.setError(result.error)
             updateStatus("Query failed: ${result.error}")
+
+            // Offer AI fix
+            val query = executedQuery ?: currentQuery?.query ?: return
+            offerAiFix(query, result.error)
             return
         }
 
@@ -254,6 +261,98 @@ class QueryTesterToolWindow(private val project: Project) {
         // Trigger optimization suggestions after successful query
         if (result.isSelect && currentQuery != null) {
             requestOptimizations()
+        }
+    }
+
+    private fun offerAiFix(failedQuery: String, error: String) {
+        val choice = Messages.showYesNoCancelDialog(
+            project,
+            "Query failed with error:\n\n$error\n\nWould you like AI to try to fix it?",
+            "Query Error",
+            "Auto-fix",
+            "Tell AI what to change",
+            "Cancel",
+            Messages.getErrorIcon()
+        )
+
+        when (choice) {
+            Messages.YES -> autoFixQuery(failedQuery, error)
+            Messages.NO -> askUserForFixInstructions(failedQuery, error)
+        }
+    }
+
+    private fun autoFixQuery(failedQuery: String, error: String) {
+        if (openRouterClient == null) {
+            openRouterClient = OpenRouterClient()
+        }
+
+        updateStatus("AI fixing query...")
+
+        scope.launch {
+            try {
+                val dbSchema = SchemaIntrospector.getSchema()
+                val fixedQuery = openRouterClient!!.fixQuery(failedQuery, error, dbSchema)
+
+                withContext(Dispatchers.Swing) {
+                    if (fixedQuery.error != null) {
+                        Messages.showErrorDialog(project, "AI could not fix the query: ${fixedQuery.error}", "Fix Failed")
+                        updateStatus("AI fix failed")
+                    } else {
+                        queryPreviewPanel.setQuery(fixedQuery.formattedQuery.ifEmpty { fixedQuery.query })
+                        if (fixedQuery.parameters.isNotEmpty()) {
+                            parameterFormPanel.setParameters(fixedQuery.parameters)
+                        }
+                        updateStatus("AI fixed the query. Review and execute again.")
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Swing) {
+                    Messages.showErrorDialog(project, "Failed to fix query: ${e.message}", "Fix Failed")
+                    updateStatus("AI fix failed")
+                }
+            }
+        }
+    }
+
+    private fun askUserForFixInstructions(failedQuery: String, error: String) {
+        val instructions = Messages.showInputDialog(
+            project,
+            "What should the AI change?\n\nError: $error",
+            "Fix Instructions",
+            Messages.getQuestionIcon()
+        )
+
+        if (instructions.isNullOrBlank()) return
+
+        if (openRouterClient == null) {
+            openRouterClient = OpenRouterClient()
+        }
+
+        updateStatus("AI fixing query with your instructions...")
+
+        scope.launch {
+            try {
+                val dbSchema = SchemaIntrospector.getSchema()
+                val fixedQuery = openRouterClient!!.fixQueryWithInstructions(failedQuery, error, instructions, dbSchema)
+
+                withContext(Dispatchers.Swing) {
+                    if (fixedQuery.error != null) {
+                        Messages.showErrorDialog(project, "AI could not fix the query: ${fixedQuery.error}", "Fix Failed")
+                        updateStatus("AI fix failed")
+                    } else {
+                        queryPreviewPanel.setQuery(fixedQuery.formattedQuery.ifEmpty { fixedQuery.query })
+                        if (fixedQuery.parameters.isNotEmpty()) {
+                            parameterFormPanel.setParameters(fixedQuery.parameters)
+                        }
+                        updateStatus("AI fixed the query. Review and execute again.")
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Swing) {
+                    Messages.showErrorDialog(project, "Failed to fix query: ${e.message}", "Fix Failed")
+                    updateStatus("AI fix failed")
+                }
+            }
         }
     }
 

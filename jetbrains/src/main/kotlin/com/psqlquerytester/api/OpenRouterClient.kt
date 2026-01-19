@@ -88,7 +88,8 @@ If there is ONE query, return:
     ]
 }
 
-If there are MULTIPLE queries, return them as options for the user to choose:
+If there are MULTIPLE queries, return them as options for the user to choose.
+ORDER them by which you think is LEAST PERFORMANT first (most likely to need optimization):
 {
     "multipleQueries": true,
     "options": [
@@ -130,7 +131,6 @@ $codeSnippet
                 ChatMessage(role = "system", content = systemPrompt),
                 ChatMessage(role = "user", content = userPrompt)
             ),
-            maxTokens = 2000,
             temperature = 0.1
         )
 
@@ -252,7 +252,6 @@ Suggest faster alternatives and any helpful indexes.
                 ChatMessage(role = "system", content = systemPrompt),
                 ChatMessage(role = "user", content = userPrompt)
             ),
-            maxTokens = 3000,
             temperature = 0.2
         )
 
@@ -359,7 +358,6 @@ Generate the modified code that can directly replace the original code selection
                 ChatMessage(role = "system", content = systemPrompt),
                 ChatMessage(role = "user", content = userPrompt)
             ),
-            maxTokens = 3000,
             temperature = 0.1
         )
 
@@ -444,7 +442,6 @@ The query should return exactly one value that matches this description.
                 ChatMessage(role = "system", content = systemPrompt),
                 ChatMessage(role = "user", content = userPrompt)
             ),
-            maxTokens = 1000,
             temperature = 0.1
         )
 
@@ -479,6 +476,158 @@ The query should return exactly one value that matches this description.
             json.decodeFromString<ParameterValueQuery>(cleanContent)
         } catch (e: Exception) {
             ParameterValueQuery(error = "Could not parse response: ${e.message}")
+        }
+    }
+
+    suspend fun fixQuery(
+        failedQuery: String,
+        error: String,
+        dbSchema: String?
+    ): ExtractedQuery {
+        val apiKey = CredentialManager.getOpenRouterApiKey()
+            ?: return ExtractedQuery(error = "OpenRouter API key not configured.")
+
+        val schemaSection = dbSchema ?: "Schema not available"
+
+        val systemPrompt = """
+You are a PostgreSQL expert. Fix the SQL query based on the error message.
+
+DATABASE SCHEMA:
+$schemaSection
+
+Return ONLY a valid JSON object (no markdown, no code blocks) with this structure:
+{
+    "query": "The fixed SQL query with ${'$'}1, ${'$'}2, etc. for parameters",
+    "formattedQuery": "The same query nicely formatted",
+    "parameters": [
+        {"name": "param_name", "type": "type", "position": 1, "originalVariable": ""}
+    ]
+}
+
+If you cannot fix the query, return:
+{"query": "", "formattedQuery": "", "parameters": [], "error": "Explanation of why it cannot be fixed"}
+""".trimIndent()
+
+        val userPrompt = """
+Fix this PostgreSQL query that failed with an error:
+
+QUERY:
+```sql
+$failedQuery
+```
+
+ERROR:
+$error
+
+Return the corrected query.
+""".trimIndent()
+
+        val request = ChatCompletionRequest(
+            model = PluginSettings.getInstance().getModel(),
+            messages = listOf(
+                ChatMessage(role = "system", content = systemPrompt),
+                ChatMessage(role = "user", content = userPrompt)
+            ),
+            temperature = 0.1
+        )
+
+        return try {
+            val response: ChatCompletionResponse = client.post("https://openrouter.ai/api/v1/chat/completions") {
+                contentType(ContentType.Application.Json)
+                header("Authorization", "Bearer $apiKey")
+                header("HTTP-Referer", "https://github.com/psql-query-tester")
+                header("X-Title", "PSQL Query Tester")
+                setBody(request)
+            }.body()
+
+            if (response.error != null) {
+                return ExtractedQuery(error = "API Error: ${response.error.message}")
+            }
+
+            val content = response.choices.firstOrNull()?.message?.content
+                ?: return ExtractedQuery(error = "No response from API")
+
+            parseExtractedQuery(content)
+        } catch (e: Exception) {
+            ExtractedQuery(error = "Failed to fix query: ${e.message}")
+        }
+    }
+
+    suspend fun fixQueryWithInstructions(
+        failedQuery: String,
+        error: String,
+        instructions: String,
+        dbSchema: String?
+    ): ExtractedQuery {
+        val apiKey = CredentialManager.getOpenRouterApiKey()
+            ?: return ExtractedQuery(error = "OpenRouter API key not configured.")
+
+        val schemaSection = dbSchema ?: "Schema not available"
+
+        val systemPrompt = """
+You are a PostgreSQL expert. Fix the SQL query based on the error message and user instructions.
+
+DATABASE SCHEMA:
+$schemaSection
+
+Return ONLY a valid JSON object (no markdown, no code blocks) with this structure:
+{
+    "query": "The fixed SQL query with ${'$'}1, ${'$'}2, etc. for parameters",
+    "formattedQuery": "The same query nicely formatted",
+    "parameters": [
+        {"name": "param_name", "type": "type", "position": 1, "originalVariable": ""}
+    ]
+}
+
+If you cannot fix the query, return:
+{"query": "", "formattedQuery": "", "parameters": [], "error": "Explanation of why it cannot be fixed"}
+""".trimIndent()
+
+        val userPrompt = """
+Fix this PostgreSQL query that failed with an error:
+
+QUERY:
+```sql
+$failedQuery
+```
+
+ERROR:
+$error
+
+USER INSTRUCTIONS:
+$instructions
+
+Apply the user's instructions to fix the query.
+""".trimIndent()
+
+        val request = ChatCompletionRequest(
+            model = PluginSettings.getInstance().getModel(),
+            messages = listOf(
+                ChatMessage(role = "system", content = systemPrompt),
+                ChatMessage(role = "user", content = userPrompt)
+            ),
+            temperature = 0.1
+        )
+
+        return try {
+            val response: ChatCompletionResponse = client.post("https://openrouter.ai/api/v1/chat/completions") {
+                contentType(ContentType.Application.Json)
+                header("Authorization", "Bearer $apiKey")
+                header("HTTP-Referer", "https://github.com/psql-query-tester")
+                header("X-Title", "PSQL Query Tester")
+                setBody(request)
+            }.body()
+
+            if (response.error != null) {
+                return ExtractedQuery(error = "API Error: ${response.error.message}")
+            }
+
+            val content = response.choices.firstOrNull()?.message?.content
+                ?: return ExtractedQuery(error = "No response from API")
+
+            parseExtractedQuery(content)
+        } catch (e: Exception) {
+            ExtractedQuery(error = "Failed to fix query: ${e.message}")
         }
     }
 
