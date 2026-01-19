@@ -42,6 +42,12 @@ interface ParameterValueQuery {
     error?: string;
 }
 
+interface CodeChangeResponse {
+    modifiedCode: string;
+    explanation: string;
+    error?: string;
+}
+
 export class OpenRouterClient {
     private getApiKey(): string | undefined {
         return vscode.workspace.getConfiguration('psqlQueryTester').get('openRouterApiKey');
@@ -52,7 +58,7 @@ export class OpenRouterClient {
         return override && override.trim() ? override.trim() : DEFAULT_MODEL;
     }
 
-    async extractQuery(codeSnippet: string, language: string, dbSchema?: string): Promise<ExtractedQuery> {
+    async extractQuery(codeSnippet: string, language: string, dbSchema?: string, surroundingContext?: string): Promise<ExtractedQuery> {
         const apiKey = this.getApiKey();
         if (!apiKey) {
             return { query: '', formattedQuery: '', parameters: [], error: 'OpenRouter API key not configured. Go to Settings > PSQL Query Tester.' };
@@ -60,12 +66,15 @@ export class OpenRouterClient {
 
         const schemaSection = dbSchema ? `\n\nIMPORTANT: Use ONLY the tables and columns from this database schema. If the code references a table or column that doesn't exist, note it in the error field.\n\n${dbSchema}` : '';
 
+        const contextSection = surroundingContext ? `
+6. Use the surrounding context to understand variable types, imports, and module structure` : '';
+
         const systemPrompt = `You are a PostgreSQL expert that extracts SQL queries from code. Your task is to:
 1. Identify the SQL query in the provided code
 2. Extract and format it as a clean PostgreSQL query
 3. Detect any parameters/variables that need to be filled in
 4. Convert language-specific placeholders to PostgreSQL $1, $2, etc. format
-5. VALIDATE that all table and column names exist in the provided database schema
+5. VALIDATE that all table and column names exist in the provided database schema${contextSection}
 ${schemaSection}
 Return ONLY a valid JSON object (no markdown, no code blocks) with this exact structure:
 {
@@ -86,6 +95,7 @@ For Elixir/Ecto queries:
 - Map ^variable to positional parameters
 - Handle fragment() calls
 - Convert Ecto types to PostgreSQL types
+- Use context to determine correct table names from schema aliases
 
 If you cannot find a SQL query in the code, return:
 {"query": "", "formattedQuery": "", "parameters": [], "error": "No SQL query found in the selected code"}
@@ -93,7 +103,17 @@ If you cannot find a SQL query in the code, return:
 If the query references tables/columns not in the schema, return:
 {"query": "", "formattedQuery": "", "parameters": [], "error": "Table or column not found: [name]. Available tables: [list]"}`;
 
-        const userPrompt = `Extract the SQL query from this ${language} code:\n\n\`\`\`${language}\n${codeSnippet}\n\`\`\``;
+        const contextPrompt = surroundingContext ? `
+
+SURROUNDING CODE CONTEXT (for understanding imports, module structure, variable definitions):
+\`\`\`${language}
+${surroundingContext}
+\`\`\`
+
+The user has selected the following specific code snippet from the above context. Focus on extracting the SQL from the SELECTED CODE, but use the surrounding context to understand variable types, imports, and module structure.
+` : '';
+
+        const userPrompt = `${contextPrompt}SELECTED CODE to extract SQL from:\n\n\`\`\`${language}\n${codeSnippet}\n\`\`\``;
 
         return this.callApi<ExtractedQuery>(systemPrompt, userPrompt, 2000, 0.1);
     }
@@ -181,6 +201,67 @@ If unable to generate a valid query:
         return this.callApi<ParameterValueQuery>(systemPrompt, userPrompt, 1000, 0.1);
     }
 
+    async generateCodeChange(
+        originalCode: string,
+        originalQuery: string,
+        optimizedQuery: string,
+        language: string,
+        surroundingContext: string = ''
+    ): Promise<CodeChangeResponse> {
+        const apiKey = this.getApiKey();
+        if (!apiKey) {
+            return { modifiedCode: '', explanation: '', error: 'OpenRouter API key not configured.' };
+        }
+
+        const contextSection = surroundingContext ? `
+
+SURROUNDING CODE CONTEXT (for understanding imports, module structure, and coding style):
+\`\`\`${language}
+${surroundingContext}
+\`\`\`
+
+Use this context to understand the coding style, imports, and patterns used in this codebase.
+` : '';
+
+        const systemPrompt = `You are an expert ${language} developer. Your task is to update code to use an optimized SQL query.
+
+Return ONLY a valid JSON object (no markdown, no code blocks) with this structure:
+{
+    "modifiedCode": "The complete modified code with the optimized query",
+    "explanation": "Brief explanation of the changes made"
+}
+
+Rules:
+- Keep the same code style and conventions as the original
+- Only change the SQL query, preserve all other logic
+- Maintain the same variable names and structure
+- For Elixir/Ecto: convert raw SQL back to Ecto syntax if possible, or use fragment()
+- Ensure the code is syntactically correct
+- Match the indentation and formatting style of the surrounding code
+- The modifiedCode should be a drop-in replacement for the original code selection`;
+
+        const userPrompt = `${contextSection}Update this ${language} code to use the optimized query:
+
+CODE TO MODIFY (this is what will be replaced):
+\`\`\`${language}
+${originalCode}
+\`\`\`
+
+ORIGINAL QUERY (extracted from the code):
+\`\`\`sql
+${originalQuery}
+\`\`\`
+
+OPTIMIZED QUERY (to use instead):
+\`\`\`sql
+${optimizedQuery}
+\`\`\`
+
+Generate the modified code that can directly replace the original code selection.`;
+
+        return this.callApi<CodeChangeResponse>(systemPrompt, userPrompt, 3000, 0.1);
+    }
+
     private async callApi<T>(systemPrompt: string, userPrompt: string, maxTokens: number, temperature: number): Promise<T> {
         const apiKey = this.getApiKey();
         
@@ -226,4 +307,4 @@ If unable to generate a valid query:
     }
 }
 
-export { ExtractedQuery, QueryParameter, OptimizationSuggestion, OptimizationResponse, ParameterValueQuery };
+export { ExtractedQuery, QueryParameter, OptimizationSuggestion, OptimizationResponse, ParameterValueQuery, CodeChangeResponse };

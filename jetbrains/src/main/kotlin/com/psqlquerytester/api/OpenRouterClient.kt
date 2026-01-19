@@ -29,7 +29,12 @@ class OpenRouterClient {
         }
     }
 
-    suspend fun extractQuery(codeSnippet: String, language: String = "elixir", dbSchema: String? = null): ExtractedQuery {
+    suspend fun extractQuery(
+        codeSnippet: String,
+        language: String = "elixir",
+        dbSchema: String? = null,
+        surroundingContext: String = ""
+    ): ExtractedQuery {
         val apiKey = CredentialManager.getOpenRouterApiKey()
             ?: return ExtractedQuery(
                 query = "",
@@ -45,6 +50,18 @@ $dbSchema
 """
         } else ""
 
+        val contextSection = if (surroundingContext.isNotBlank()) {
+            """
+
+SURROUNDING CODE CONTEXT (for understanding imports, module structure, variable definitions):
+```$language
+$surroundingContext
+```
+
+The user has selected the following specific code snippet from the above context. Focus on extracting the SQL from the SELECTED CODE, but use the surrounding context to understand variable types, imports, and module structure.
+"""
+        } else ""
+
         val systemPrompt = """
 You are a PostgreSQL expert that extracts SQL queries from code. Your task is to:
 1. Identify the SQL query in the provided code
@@ -52,6 +69,7 @@ You are a PostgreSQL expert that extracts SQL queries from code. Your task is to
 3. Detect any parameters/variables that need to be filled in
 4. Convert language-specific placeholders to PostgreSQL ${'$'}1, ${'$'}2, etc. format
 5. VALIDATE that all table and column names exist in the provided database schema
+6. Use the surrounding context to understand variable types, imports, and function definitions
 $schemaSection
 Return ONLY a valid JSON object (no markdown, no code blocks) with this exact structure:
 {
@@ -72,6 +90,7 @@ For Elixir/Ecto queries:
 - Map ^variable to positional parameters
 - Handle fragment() calls
 - Convert Ecto types to PostgreSQL types
+- Use context to determine correct table names from schema aliases
 
 If you cannot find a SQL query in the code, return:
 {"query": "", "formattedQuery": "", "parameters": [], "error": "No SQL query found in the selected code"}
@@ -81,7 +100,8 @@ If the query references tables/columns not in the schema, return:
 """.trimIndent()
 
         val userPrompt = """
-Extract the SQL query from this $language code:
+$contextSection
+SELECTED CODE to extract SQL from:
 
 ```$language
 $codeSnippet
@@ -258,10 +278,23 @@ Suggest faster alternatives and any helpful indexes.
         originalCode: String,
         originalQuery: String,
         optimizedQuery: String,
-        language: String
+        language: String,
+        surroundingContext: String = ""
     ): CodeChangeResponse {
         val apiKey = CredentialManager.getOpenRouterApiKey()
             ?: return CodeChangeResponse(error = "OpenRouter API key not configured.")
+
+        val contextSection = if (surroundingContext.isNotBlank()) {
+            """
+
+SURROUNDING CODE CONTEXT (for understanding imports, module structure, and coding style):
+```$language
+$surroundingContext
+```
+
+Use this context to understand the coding style, imports, and patterns used in this codebase.
+"""
+        } else ""
 
         val systemPrompt = """
 You are an expert $language developer. Your task is to update code to use an optimized SQL query.
@@ -278,27 +311,30 @@ Rules:
 - Maintain the same variable names and structure
 - For Elixir/Ecto: convert raw SQL back to Ecto syntax if possible, or use fragment()
 - Ensure the code is syntactically correct
+- Match the indentation and formatting style of the surrounding code
+- The modifiedCode should be a drop-in replacement for the original code selection
 """.trimIndent()
 
         val userPrompt = """
+$contextSection
 Update this $language code to use the optimized query:
 
-ORIGINAL CODE:
+CODE TO MODIFY (this is what will be replaced):
 ```$language
 $originalCode
 ```
 
-ORIGINAL QUERY:
+ORIGINAL QUERY (extracted from the code):
 ```sql
 $originalQuery
 ```
 
-OPTIMIZED QUERY:
+OPTIMIZED QUERY (to use instead):
 ```sql
 $optimizedQuery
 ```
 
-Generate the modified code.
+Generate the modified code that can directly replace the original code selection.
 """.trimIndent()
 
         val request = ChatCompletionRequest(

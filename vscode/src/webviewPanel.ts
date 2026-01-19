@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { OpenRouterClient, ExtractedQuery, QueryParameter, OptimizationSuggestion } from './openRouterClient';
+import { OpenRouterClient, ExtractedQuery, QueryParameter, OptimizationSuggestion, CodeChangeResponse } from './openRouterClient';
 import { QueryExecutor, QueryResult, getSchema } from './queryExecutor';
 
 export class QueryTesterPanel {
@@ -16,22 +16,56 @@ export class QueryTesterPanel {
     private lastExecutionTimeMs: number = 0;
     private originalCode: string = '';
     private detectedLanguage: string = '';
+    private fullFileContent: string = '';
+    private surroundingContext: string = '';
+    private selectionStartOffset: number = 0;
+    private selectionEndOffset: number = 0;
+    private sourceUri: vscode.Uri | undefined;
 
     private static pendingCode: string = '';
     private static pendingFileName: string = '';
+    private static pendingFullFileContent: string = '';
+    private static pendingSurroundingContext: string = '';
+    private static pendingSelectionStartOffset: number = 0;
+    private static pendingSelectionEndOffset: number = 0;
+    private static pendingSourceUri: vscode.Uri | undefined;
 
-    public static createOrShow(extensionUri: vscode.Uri, selectedCode: string, fileName: string) {
+    public static createOrShow(
+        extensionUri: vscode.Uri,
+        selectedCode: string,
+        fileName: string,
+        fullFileContent: string = '',
+        surroundingContext: string = '',
+        selectionStartOffset: number = 0,
+        selectionEndOffset: number = 0
+    ) {
         const column = vscode.ViewColumn.Beside;
+
+        // Get the source URI from active editor
+        const sourceUri = vscode.window.activeTextEditor?.document.uri;
 
         if (QueryTesterPanel.currentPanel) {
             QueryTesterPanel.currentPanel._panel.reveal(column);
-            QueryTesterPanel.currentPanel.extractQuery(selectedCode, fileName);
+            QueryTesterPanel.currentPanel.extractQuery(
+                selectedCode,
+                fileName,
+                fullFileContent,
+                surroundingContext,
+                selectionStartOffset,
+                selectionEndOffset,
+                sourceUri
+            );
             return;
         }
 
-        // Store pending code for when webview is ready
+        // Store pending code and context for when webview is ready
         QueryTesterPanel.pendingCode = selectedCode;
         QueryTesterPanel.pendingFileName = fileName;
+        QueryTesterPanel.pendingFullFileContent = fullFileContent;
+        QueryTesterPanel.pendingSurroundingContext = surroundingContext;
+        QueryTesterPanel.pendingSelectionStartOffset = selectionStartOffset;
+        QueryTesterPanel.pendingSelectionEndOffset = selectionEndOffset;
+        QueryTesterPanel.pendingSourceUri = sourceUri;
 
         const panel = vscode.window.createWebviewPanel(
             QueryTesterPanel.viewType,
@@ -66,9 +100,22 @@ export class QueryTesterPanel {
                     case 'ready':
                         // Webview is ready, process pending code
                         if (QueryTesterPanel.pendingCode) {
-                            this.extractQuery(QueryTesterPanel.pendingCode, QueryTesterPanel.pendingFileName);
+                            this.extractQuery(
+                                QueryTesterPanel.pendingCode,
+                                QueryTesterPanel.pendingFileName,
+                                QueryTesterPanel.pendingFullFileContent,
+                                QueryTesterPanel.pendingSurroundingContext,
+                                QueryTesterPanel.pendingSelectionStartOffset,
+                                QueryTesterPanel.pendingSelectionEndOffset,
+                                QueryTesterPanel.pendingSourceUri
+                            );
                             QueryTesterPanel.pendingCode = '';
                             QueryTesterPanel.pendingFileName = '';
+                            QueryTesterPanel.pendingFullFileContent = '';
+                            QueryTesterPanel.pendingSurroundingContext = '';
+                            QueryTesterPanel.pendingSelectionStartOffset = 0;
+                            QueryTesterPanel.pendingSelectionEndOffset = 0;
+                            QueryTesterPanel.pendingSourceUri = undefined;
                         }
                         break;
                     case 'executeQuery':
@@ -79,6 +126,9 @@ export class QueryTesterPanel {
                         break;
                     case 'aiAssist':
                         await this.aiAssist(message.paramName, message.paramType);
+                        break;
+                    case 'applyToCode':
+                        await this.applyToCode(message.suggestion);
                         break;
                 }
             },
@@ -112,15 +162,33 @@ export class QueryTesterPanel {
         }
     }
 
-    private async extractQuery(selectedCode: string, fileName: string) {
+    private async extractQuery(
+        selectedCode: string,
+        fileName: string,
+        fullFileContent: string = '',
+        surroundingContext: string = '',
+        selectionStartOffset: number = 0,
+        selectionEndOffset: number = 0,
+        sourceUri?: vscode.Uri
+    ) {
         this.originalCode = selectedCode;
         this.detectedLanguage = this.detectLanguage(fileName, selectedCode);
+        this.fullFileContent = fullFileContent;
+        this.surroundingContext = surroundingContext;
+        this.selectionStartOffset = selectionStartOffset;
+        this.selectionEndOffset = selectionEndOffset;
+        this.sourceUri = sourceUri;
 
         this._panel.webview.postMessage({ command: 'setLoading', loading: true });
 
         try {
             const dbSchema = await getSchema();
-            const result = await this.openRouterClient.extractQuery(selectedCode, this.detectedLanguage, dbSchema);
+            const result = await this.openRouterClient.extractQuery(
+                selectedCode,
+                this.detectedLanguage,
+                dbSchema,
+                surroundingContext
+            );
             this.currentQuery = result;
 
             this._panel.webview.postMessage({
@@ -294,6 +362,103 @@ export class QueryTesterPanel {
             paramName,
             loading: false
         });
+    }
+
+    private async applyToCode(suggestion: OptimizationSuggestion) {
+        if (!this.currentQuery) {
+            vscode.window.showErrorMessage('No current query to apply');
+            return;
+        }
+
+        this._panel.webview.postMessage({ command: 'setApplyingCode', applying: true });
+
+        try {
+            const response = await this.openRouterClient.generateCodeChange(
+                this.originalCode,
+                this.currentQuery.query,
+                suggestion.query,
+                this.detectedLanguage,
+                this.surroundingContext
+            );
+
+            if (response.error) {
+                vscode.window.showErrorMessage('Code generation failed: ' + response.error);
+                this._panel.webview.postMessage({ command: 'setApplyingCode', applying: false });
+                return;
+            }
+
+            // Apply the change to the source document
+            await this.applyCodeToEditor(response.modifiedCode);
+            vscode.window.showInformationMessage('Code updated! ' + (response.explanation || ''));
+        } catch (e: any) {
+            vscode.window.showErrorMessage('Failed to apply code: ' + e.message);
+        }
+
+        this._panel.webview.postMessage({ command: 'setApplyingCode', applying: false });
+    }
+
+    private async applyCodeToEditor(newCode: string) {
+        // Try to find the source document
+        let document: vscode.TextDocument | undefined;
+
+        if (this.sourceUri) {
+            // Try to get the document from the source URI
+            document = vscode.workspace.textDocuments.find(
+                doc => doc.uri.toString() === this.sourceUri!.toString()
+            );
+
+            // If not already open, try to open it
+            if (!document) {
+                try {
+                    document = await vscode.workspace.openTextDocument(this.sourceUri);
+                } catch (e) {
+                    // Document might have been deleted
+                }
+            }
+        }
+
+        // Fallback to active editor
+        if (!document) {
+            const editor = vscode.window.activeTextEditor;
+            if (editor) {
+                document = editor.document;
+            }
+        }
+
+        if (!document) {
+            vscode.window.showErrorMessage('Cannot apply: source document not found');
+            return;
+        }
+
+        // Validate offsets
+        const startOffset = this.selectionStartOffset;
+        const endOffset = this.selectionEndOffset;
+
+        if (startOffset < 0 || endOffset > document.getText().length || startOffset >= endOffset) {
+            vscode.window.showErrorMessage('Cannot apply: invalid code location');
+            return;
+        }
+
+        // Convert offsets to positions
+        const startPos = document.positionAt(startOffset);
+        const endPos = document.positionAt(endOffset);
+        const range = new vscode.Range(startPos, endPos);
+
+        // Apply the edit
+        const edit = new vscode.WorkspaceEdit();
+        edit.replace(document.uri, range, newCode);
+        const success = await vscode.workspace.applyEdit(edit);
+
+        if (!success) {
+            vscode.window.showErrorMessage('Failed to apply edit to document');
+            return;
+        }
+
+        // Show the document and select the new code
+        const editor = await vscode.window.showTextDocument(document);
+        const newEndPos = document.positionAt(startOffset + newCode.length);
+        editor.selection = new vscode.Selection(startPos, newEndPos);
+        editor.revealRange(new vscode.Range(startPos, newEndPos), vscode.TextEditorRevealType.InCenter);
     }
 
     private _update() {
@@ -516,6 +681,18 @@ export class QueryTesterPanel {
                         btn.textContent = message.loading ? '...' : 'AI';
                     }
                     break;
+
+                case 'setApplyingCode':
+                    const applyBtns = document.querySelectorAll('.apply-btn');
+                    applyBtns.forEach(btn => {
+                        btn.disabled = message.applying;
+                        if (message.applying) {
+                            btn.textContent = 'Applying...';
+                        } else {
+                            btn.textContent = 'Apply to Code';
+                        }
+                    });
+                    break;
             }
         });
 
@@ -598,6 +775,7 @@ export class QueryTesterPanel {
                     '<div class="opt-explanation">' + s.explanation + '</div>' +
                     '<textarea id="opt-query-' + i + '">' + (s.formattedQuery || s.query) + '</textarea>' +
                     '<button onclick="testOptimization(' + i + ')">Test Query</button>' +
+                    '<button class="apply-btn" onclick="applyToCode(' + i + ')">Apply to Code</button>' +
                     '<span id="opt-result-' + i + '"></span>' +
                     '</div>';
             });
@@ -628,6 +806,16 @@ export class QueryTesterPanel {
 
             document.getElementById('opt-result-' + index).textContent = ' Testing...';
             vscode.postMessage({ command: 'testOptimization', suggestion, parameterValues: values });
+        }
+
+        function applyToCode(index) {
+            const suggestion = { ...currentOptimizations[index] };
+            const textarea = document.getElementById('opt-query-' + index);
+            if (textarea) {
+                suggestion.query = textarea.value;
+                suggestion.formattedQuery = textarea.value;
+            }
+            vscode.postMessage({ command: 'applyToCode', suggestion });
         }
 
         function updateOptimizationResult(suggestion, result, originalTime) {

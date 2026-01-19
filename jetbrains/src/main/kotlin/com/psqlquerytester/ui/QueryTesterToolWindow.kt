@@ -58,6 +58,10 @@ class QueryTesterToolWindow(private val project: Project) {
     private var lastExecutionTimeMs: Long = 0
     private var originalCode: String = ""
     private var detectedLanguage: String = "elixir"
+    private var fullFileContent: String = ""
+    private var surroundingContext: String = ""
+    private var selectionStartOffset: Int = 0
+    private var selectionEndOffset: Int = 0
 
     init {
         setupUI()
@@ -94,10 +98,23 @@ class QueryTesterToolWindow(private val project: Project) {
 
     fun getContent(): JPanel = mainPanel
 
-    fun extractAndTestQuery(selectedCode: String, fileName: String?) {
+    fun extractAndTestQuery(
+        selectedCode: String,
+        fileName: String?,
+        fullFileContent: String = "",
+        surroundingContext: String = "",
+        selectionStartOffset: Int = 0,
+        selectionEndOffset: Int = 0
+    ) {
         if (queryExtractor == null) {
             queryExtractor = QueryExtractor()
         }
+
+        // Store context for later use in code application
+        this.fullFileContent = fullFileContent
+        this.surroundingContext = surroundingContext
+        this.selectionStartOffset = selectionStartOffset
+        this.selectionEndOffset = selectionEndOffset
         if (openRouterClient == null) {
             openRouterClient = OpenRouterClient()
         }
@@ -115,7 +132,7 @@ class QueryTesterToolWindow(private val project: Project) {
             try {
                 val language = queryExtractor!!.detectLanguage(fileName, selectedCode)
                 detectedLanguage = language
-                val result = queryExtractor!!.extract(selectedCode, language)
+                val result = queryExtractor!!.extract(selectedCode, language, surroundingContext)
 
                 withContext(Dispatchers.Swing) {
                     handleExtractionResult(result)
@@ -291,10 +308,11 @@ class QueryTesterToolWindow(private val project: Project) {
         scope.launch {
             try {
                 val response = openRouterClient!!.generateCodeChange(
-                    originalCode,
-                    query.query,
-                    suggestion.query,
-                    detectedLanguage
+                    originalCode = originalCode,
+                    originalQuery = query.query,
+                    optimizedQuery = suggestion.query,
+                    language = detectedLanguage,
+                    surroundingContext = surroundingContext
                 )
 
                 withContext(Dispatchers.Swing) {
@@ -303,7 +321,7 @@ class QueryTesterToolWindow(private val project: Project) {
                         return@withContext
                     }
 
-                    // Apply the change to the editor
+                    // Apply the change to the editor using stored offsets
                     applyCodeToEditor(response.modifiedCode)
                     updateStatus("Code updated! ${response.explanation}")
                 }
@@ -318,17 +336,37 @@ class QueryTesterToolWindow(private val project: Project) {
     private fun applyCodeToEditor(newCode: String) {
         val editor = FileEditorManager.getInstance(project).selectedTextEditor ?: return
         val document = editor.document
-        val selectionModel = editor.selectionModel
 
-        if (selectionModel.hasSelection()) {
-            WriteCommandAction.runWriteCommandAction(project) {
-                document.replaceString(
-                    selectionModel.selectionStart,
-                    selectionModel.selectionEnd,
-                    newCode
-                )
-            }
+        // Use stored offsets if available, otherwise fall back to current selection
+        val startOffset: Int
+        val endOffset: Int
+
+        if (selectionStartOffset > 0 || selectionEndOffset > 0) {
+            // Use the stored offsets from when the query was extracted
+            startOffset = selectionStartOffset
+            endOffset = selectionEndOffset
+        } else if (editor.selectionModel.hasSelection()) {
+            // Fall back to current selection
+            startOffset = editor.selectionModel.selectionStart
+            endOffset = editor.selectionModel.selectionEnd
+        } else {
+            updateStatus("Cannot apply: no selection found")
+            return
         }
+
+        // Validate offsets are within document bounds
+        if (startOffset < 0 || endOffset > document.textLength || startOffset >= endOffset) {
+            updateStatus("Cannot apply: invalid code location")
+            return
+        }
+
+        WriteCommandAction.runWriteCommandAction(project) {
+            document.replaceString(startOffset, endOffset, newCode)
+        }
+
+        // Select the newly inserted code so user can see what changed
+        editor.selectionModel.setSelection(startOffset, startOffset + newCode.length)
+        editor.caretModel.moveToOffset(startOffset)
     }
 
     private fun handleAiAssist(paramName: String, paramType: String) {

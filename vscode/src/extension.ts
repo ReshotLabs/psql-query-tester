@@ -22,7 +22,27 @@ export function activate(context: vscode.ExtensionContext) {
             }
 
             const fileName = editor.document.fileName;
-            QueryTesterPanel.createOrShow(context.extensionUri, selectedText, fileName);
+            const fullFileContent = editor.document.getText();
+
+            // Get surrounding context (20 lines before and after)
+            const startLine = Math.max(0, selection.start.line - 20);
+            const endLine = Math.min(editor.document.lineCount - 1, selection.end.line + 20);
+            const contextRange = new vscode.Range(startLine, 0, endLine, editor.document.lineAt(endLine).text.length);
+            const surroundingContext = editor.document.getText(contextRange);
+
+            // Store selection offsets for later code replacement
+            const selectionStartOffset = editor.document.offsetAt(selection.start);
+            const selectionEndOffset = editor.document.offsetAt(selection.end);
+
+            QueryTesterPanel.createOrShow(
+                context.extensionUri,
+                selectedText,
+                fileName,
+                fullFileContent,
+                surroundingContext,
+                selectionStartOffset,
+                selectionEndOffset
+            );
         }
     );
 

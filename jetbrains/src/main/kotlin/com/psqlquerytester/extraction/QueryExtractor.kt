@@ -8,7 +8,11 @@ class QueryExtractor {
 
     private val client = OpenRouterClient()
 
-    suspend fun extract(codeSnippet: String, language: String = "elixir"): ExtractedQuery {
+    suspend fun extract(
+        codeSnippet: String,
+        language: String = "elixir",
+        surroundingContext: String = ""
+    ): ExtractedQuery {
         if (codeSnippet.isBlank()) {
             return ExtractedQuery(
                 query = "",
@@ -19,7 +23,7 @@ class QueryExtractor {
         // Fetch database schema for context
         val dbSchema = SchemaIntrospector.getSchema()
 
-        return client.extractQuery(codeSnippet, language, dbSchema)
+        return client.extractQuery(codeSnippet, language, dbSchema, surroundingContext)
     }
 
     /**
