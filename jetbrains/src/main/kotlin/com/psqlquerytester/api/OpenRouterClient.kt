@@ -165,22 +165,66 @@ $codeSnippet
     }
 
     private fun parseExtractedQuery(content: String): ExtractedQuery {
-        return try {
-            // Clean up the response - remove any markdown code blocks if present
-            val cleanContent = content
-                .replace(Regex("```json\\s*"), "")
-                .replace(Regex("```\\s*"), "")
-                .trim()
+        // Clean up the response - remove any markdown code blocks if present
+        val cleanContent = content
+            .replace(Regex("```json\\s*"), "")
+            .replace(Regex("```\\s*"), "")
+            .trim()
 
+        // Try to parse as JSON first
+        return try {
             json.decodeFromString<ExtractedQuery>(cleanContent)
         } catch (e: Exception) {
-            // Try to extract query manually if JSON parsing fails
-            ExtractedQuery(
-                query = content,
-                formattedQuery = content,
-                error = "Could not parse structured response. Raw content shown above."
-            )
+            // Try to find JSON object in the response
+            val jsonMatch = Regex("""\{[\s\S]*"query"[\s\S]*\}""").find(cleanContent)
+            if (jsonMatch != null) {
+                try {
+                    json.decodeFromString<ExtractedQuery>(jsonMatch.value)
+                } catch (e2: Exception) {
+                    tryExtractQueryFromText(cleanContent)
+                }
+            } else {
+                tryExtractQueryFromText(cleanContent)
+            }
         }
+    }
+
+    private fun tryExtractQueryFromText(content: String): ExtractedQuery {
+        // Try to extract SQL from the text if it looks like a query
+        val sqlKeywords = listOf("SELECT", "INSERT", "UPDATE", "DELETE", "WITH")
+        val upperContent = content.uppercase()
+
+        for (keyword in sqlKeywords) {
+            if (upperContent.contains(keyword)) {
+                // Extract lines that look like SQL
+                val lines = content.lines()
+                val sqlLines = mutableListOf<String>()
+                var inSql = false
+
+                for (line in lines) {
+                    val trimmed = line.trim()
+                    if (trimmed.uppercase().startsWith(keyword) || inSql) {
+                        inSql = true
+                        sqlLines.add(line)
+                        if (trimmed.endsWith(";")) break
+                    }
+                }
+
+                if (sqlLines.isNotEmpty()) {
+                    val extractedSql = sqlLines.joinToString("\n")
+                    return ExtractedQuery(
+                        query = extractedSql,
+                        formattedQuery = extractedSql
+                    )
+                }
+            }
+        }
+
+        // Last resort - return the content as the query
+        return ExtractedQuery(
+            query = content,
+            formattedQuery = content
+        )
     }
 
     suspend fun suggestOptimizations(

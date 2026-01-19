@@ -170,7 +170,7 @@ class OptimizationPanel(
     ) : JPanel(BorderLayout()) {
 
         private val testButton = JButton("Test Query")
-        private val applyButton = JButton("Apply to Code").apply { isEnabled = false }
+        private val applyButton = JButton("Apply to Code")
         private val resultLabel = JBLabel()
         private var testedTime: Long? = null
         private val queryArea: JBTextArea
@@ -245,9 +245,6 @@ class OptimizationPanel(
 
             resultLabel.text = "${result.durationMs}ms$comparison - ${result.rowCount} rows"
             resultLabel.foreground = if (result.durationMs < originalTime) JBColor.GREEN.darker() else JBColor.ORANGE
-
-            // Enable apply button if the query worked
-            applyButton.isEnabled = true
         }
 
         fun setTestError(error: String) {
