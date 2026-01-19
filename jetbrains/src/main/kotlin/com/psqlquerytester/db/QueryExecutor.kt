@@ -4,6 +4,12 @@ import com.psqlquerytester.api.QueryParameter
 import com.psqlquerytester.settings.PluginSettings
 import java.sql.ResultSet
 import java.sql.Types
+import java.time.Instant
+import java.time.LocalDateTime
+import java.time.OffsetDateTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.time.format.DateTimeParseException
 
 data class QueryResult(
     val columns: List<String>,
@@ -203,7 +209,7 @@ object QueryExecutor {
             "timestamp", "timestamptz", "timestamp with time zone" -> {
                 val tsVal = when (value) {
                     is java.sql.Timestamp -> value
-                    is String -> java.sql.Timestamp.valueOf(value.replace("T", " ").replace("Z", ""))
+                    is String -> parseTimestamp(value)
                     else -> java.sql.Timestamp(System.currentTimeMillis())
                 }
                 stmt.setTimestamp(position, tsVal)
@@ -246,6 +252,44 @@ object QueryExecutor {
             "uuid" -> Types.OTHER
             "jsonb", "json" -> Types.OTHER
             else -> Types.VARCHAR
+        }
+    }
+
+    private fun parseTimestamp(value: String): java.sql.Timestamp {
+        val trimmed = value.trim()
+
+        // Try various formats
+        return try {
+            // ISO 8601 with timezone offset (e.g., 2024-01-15T10:30:00+00:00)
+            val odt = OffsetDateTime.parse(trimmed)
+            java.sql.Timestamp.from(odt.toInstant())
+        } catch (e: DateTimeParseException) {
+            try {
+                // ISO 8601 with Z suffix (e.g., 2024-01-15T10:30:00Z)
+                val instant = Instant.parse(trimmed)
+                java.sql.Timestamp.from(instant)
+            } catch (e: DateTimeParseException) {
+                try {
+                    // ISO 8601 without timezone (e.g., 2024-01-15T10:30:00)
+                    val ldt = LocalDateTime.parse(trimmed)
+                    java.sql.Timestamp.valueOf(ldt)
+                } catch (e: DateTimeParseException) {
+                    try {
+                        // Standard SQL format (e.g., 2024-01-15 10:30:00)
+                        val normalized = trimmed.replace("T", " ").replace("Z", "")
+                        java.sql.Timestamp.valueOf(normalized)
+                    } catch (e: Exception) {
+                        try {
+                            // Date only - append midnight time
+                            val dateOnly = trimmed.take(10)
+                            java.sql.Timestamp.valueOf("$dateOnly 00:00:00")
+                        } catch (e: Exception) {
+                            // Last resort - current time
+                            java.sql.Timestamp(System.currentTimeMillis())
+                        }
+                    }
+                }
+            }
         }
     }
 

@@ -64,14 +64,17 @@ The user has selected the following specific code snippet from the above context
 
         val systemPrompt = """
 You are a PostgreSQL expert that extracts SQL queries from code. Your task is to:
-1. Identify the SQL query in the provided code
-2. Extract and format it as a clean PostgreSQL query
+1. Identify SQL queries in the provided code
+2. Extract and format them as clean PostgreSQL queries
 3. Detect any parameters/variables that need to be filled in
 4. Convert language-specific placeholders to PostgreSQL ${'$'}1, ${'$'}2, etc. format
 5. VALIDATE that all table and column names exist in the provided database schema
 6. Use the surrounding context to understand variable types, imports, and function definitions
 $schemaSection
-Return ONLY a valid JSON object (no markdown, no code blocks) with this exact structure:
+
+IMPORTANT: Be decisive. Never explain your reasoning in the response - just return the JSON.
+
+If there is ONE query, return:
 {
     "query": "The raw SQL query with ${'$'}1, ${'$'}2, etc. for parameters",
     "formattedQuery": "The same query but nicely formatted with proper indentation",
@@ -81,6 +84,19 @@ Return ONLY a valid JSON object (no markdown, no code blocks) with this exact st
             "type": "postgresql_type (text, integer, boolean, timestamp, uuid, jsonb, etc.)",
             "position": 1,
             "originalVariable": "original variable name from code"
+        }
+    ]
+}
+
+If there are MULTIPLE queries, return them as options for the user to choose:
+{
+    "multipleQueries": true,
+    "options": [
+        {
+            "name": "Short descriptive name (e.g. function name or purpose)",
+            "query": "The raw SQL query",
+            "formattedQuery": "Formatted version",
+            "parameters": [...]
         }
     ]
 }

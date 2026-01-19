@@ -40,11 +40,21 @@ data class ErrorResponse(
 )
 
 @Serializable
-data class ExtractedQuery(
+data class QueryOption(
+    val name: String,
     val query: String,
     val formattedQuery: String = "",
+    val parameters: List<QueryParameter> = emptyList()
+)
+
+@Serializable
+data class ExtractedQuery(
+    val query: String = "",
+    val formattedQuery: String = "",
     val parameters: List<QueryParameter> = emptyList(),
-    val error: String? = null
+    val error: String? = null,
+    val multipleQueries: Boolean = false,
+    val options: List<QueryOption> = emptyList()
 )
 
 @Serializable

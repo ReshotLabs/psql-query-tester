@@ -148,20 +148,51 @@ class QueryTesterToolWindow(private val project: Project) {
     }
 
     private fun handleExtractionResult(result: ExtractedQuery) {
-        currentQuery = result
         queryPreviewPanel.setLoading(false)
 
-        if (result.error != null && result.query.isEmpty()) {
+        if (result.error != null && result.query.isEmpty() && !result.multipleQueries) {
             queryPreviewPanel.setError(result.error)
             updateStatus("Extraction failed")
             return
         }
 
-        val queryToShow = result.formattedQuery.ifEmpty { result.query }
+        // Handle multiple queries - let user choose
+        if (result.multipleQueries && result.options.isNotEmpty()) {
+            val optionNames = result.options.map { it.name }.toTypedArray()
+            val selectedIndex = Messages.showChooseDialog(
+                project,
+                "Multiple queries found. Select which one to test:",
+                "Select Query",
+                Messages.getQuestionIcon(),
+                optionNames,
+                optionNames[0]
+            )
+
+            if (selectedIndex >= 0) {
+                val selected = result.options[selectedIndex]
+                val selectedQuery = ExtractedQuery(
+                    query = selected.query,
+                    formattedQuery = selected.formattedQuery,
+                    parameters = selected.parameters
+                )
+                currentQuery = selectedQuery
+                displayQuery(selectedQuery)
+            } else {
+                updateStatus("No query selected")
+            }
+            return
+        }
+
+        currentQuery = result
+        displayQuery(result)
+    }
+
+    private fun displayQuery(query: ExtractedQuery) {
+        val queryToShow = query.formattedQuery.ifEmpty { query.query }
         queryPreviewPanel.setQuery(queryToShow)
 
-        if (result.parameters.isNotEmpty()) {
-            parameterFormPanel.setParameters(result.parameters)
+        if (query.parameters.isNotEmpty()) {
+            parameterFormPanel.setParameters(query.parameters)
             updateStatus("Query extracted. Fill in parameters and click Execute.")
         } else {
             parameterFormPanel.setNoParameters()
